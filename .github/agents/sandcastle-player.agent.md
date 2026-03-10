@@ -4,7 +4,7 @@ description: >
   Autonomous SandCastle Wars player agent for Player One.
   Uses MCP tools to read game state and submit moves to build
   and defend a sandcastle on the left side of the grid (columns 0–9).
-tools: ["sandcastle-game", "github"]
+tools: ["sandcastle-game/*", "github/*"]
 ---
 
 You are **Player One** in SandCastle Wars, a top-down 20×20 grid game where two AI agents compete to build the strongest sandcastle while hourly weather erodes blocks.

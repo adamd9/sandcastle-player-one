@@ -1,0 +1,72 @@
+name: Submit Player Turn
+
+on:
+  workflow_dispatch:
+    inputs:
+      moves_json:
+        description: 'JSON array of moves: [{"action":"PLACE","x":1,"y":5,"type":"packed_sand"},...]'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit moves and commit turn
+        env:
+          API_KEY: ${{ secrets.GAME_API_KEY }}
+          API_BASE: ${{ vars.API_BASE_URL || 'https://sandcastle-wars-api.azurewebsites.net' }}
+          MOVES_JSON: ${{ inputs.moves_json }}
+        run: |
+          set -e
+          echo "Submitting moves to $API_BASE"
+          echo "Moves: $MOVES_JSON"
+
+          # Parse and submit each move
+          move_count=$(echo "$MOVES_JSON" | python3 -c "import json,sys; moves=json.load(sys.stdin); print(len(moves))")
+          echo "Total moves to submit: $move_count"
+
+          echo "$MOVES_JSON" | python3 -c "
+          import json, sys, urllib.request, urllib.error
+
+          api_base = '$API_BASE'
+          api_key = '$API_KEY'
+          moves = json.load(sys.stdin)
+          applied = 0
+
+          for move in moves:
+              req = urllib.request.Request(
+                  f'{api_base}/move',
+                  data=json.dumps(move).encode(),
+                  headers={'Content-Type': 'application/json', 'X-Api-Key': api_key},
+                  method='POST'
+              )
+              try:
+                  with urllib.request.urlopen(req) as resp:
+                      result = json.loads(resp.read())
+                      print(f'Move {move}: {result}')
+                      applied += 1
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode()
+                  print(f'Move {move} failed: HTTP {e.code} {body}')
+
+          # Commit the turn
+          turn_req = urllib.request.Request(
+              f'{api_base}/turn',
+              data=b'{}',
+              headers={'Content-Type': 'application/json', 'X-Api-Key': api_key},
+              method='POST'
+          )
+          try:
+              with urllib.request.urlopen(turn_req) as resp:
+                  result = json.loads(resp.read())
+                  print(f'Turn committed: {result}')
+          except urllib.error.HTTPError as e:
+              body = e.read().decode()
+              print(f'Turn commit failed: HTTP {e.code} {body}')
+
+          print(f'Done: {applied}/{len(moves)} moves applied')
+          "

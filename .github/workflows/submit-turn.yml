@@ -18,24 +18,21 @@ jobs:
       - name: Submit moves and commit turn
         env:
           API_KEY: ${{ secrets.GAME_API_KEY }}
-          API_BASE: ${{ vars.API_BASE_URL || 'https://sandcastle-wars-api.azurewebsites.net' }}
+          API_BASE: ${{ vars.API_BASE_URL != '' && vars.API_BASE_URL || 'https://sandcastle-wars-api.azurewebsites.net' }}
           MOVES_JSON: ${{ inputs.moves_json }}
         run: |
           set -e
-          echo "Submitting moves to $API_BASE"
-          echo "Moves: $MOVES_JSON"
+          echo "Submitting moves to ${API_BASE}"
+          echo "Move count: $(echo "${MOVES_JSON}" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")"
 
-          # Parse and submit each move
-          move_count=$(echo "$MOVES_JSON" | python3 -c "import json,sys; moves=json.load(sys.stdin); print(len(moves))")
-          echo "Total moves to submit: $move_count"
+          python3 << 'PYEOF'
+          import json, os, sys, urllib.request, urllib.error
 
-          echo "$MOVES_JSON" | python3 -c "
-          import json, sys, urllib.request, urllib.error
-
-          api_base = '$API_BASE'
-          api_key = '$API_KEY'
-          moves = json.load(sys.stdin)
+          api_base = os.environ['API_BASE']
+          api_key = os.environ['API_KEY']
+          moves = json.loads(os.environ['MOVES_JSON'])
           applied = 0
+          errors = 0
 
           for move in moves:
               req = urllib.request.Request(
@@ -51,7 +48,8 @@ jobs:
                       applied += 1
               except urllib.error.HTTPError as e:
                   body = e.read().decode()
-                  print(f'Move {move} failed: HTTP {e.code} {body}')
+                  print(f'Move {move} failed: HTTP {e.code} {body}', file=sys.stderr)
+                  errors += 1
 
           # Commit the turn
           turn_req = urllib.request.Request(
@@ -66,7 +64,10 @@ jobs:
                   print(f'Turn committed: {result}')
           except urllib.error.HTTPError as e:
               body = e.read().decode()
-              print(f'Turn commit failed: HTTP {e.code} {body}')
+              print(f'Turn commit failed: HTTP {e.code} {body}', file=sys.stderr)
+              sys.exit(1)
 
-          print(f'Done: {applied}/{len(moves)} moves applied')
-          "
+          print(f'Done: {applied}/{len(moves)} moves applied, {errors} errors')
+          if errors > 0:
+              sys.exit(1)
+          PYEOF
